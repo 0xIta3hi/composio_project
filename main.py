@@ -49,9 +49,75 @@ try:
                     result = client.tools.execute(
                         slug=t.name,
                         arguments=args,
-                        user_id="default",
-                        dangerously_skip_version_check=True  # FIX: Skip version check for manual execution
+                        user_id="pg-test-a40e9be6-01b3-4dc2-ba78-30d8c608e993",
+                        dangerously_skip_version_check=True
                     )
+                    
+                    # Format Gmail responses nicely
+                    if t.name == "GMAIL_FETCH_EMAILS":
+                        try:
+                            import json
+                            
+                            # Parse result - could be dict or JSON string
+                            if isinstance(result, str):
+                                result = json.loads(result)
+                            
+                            # Debug info in response
+                            debug_info = f"🔍 DEBUG:\n"
+                            debug_info += f"  Result type: {type(result)}\n"
+                            debug_info += f"  Result keys: {list(result.keys()) if isinstance(result, dict) else 'N/A'}\n"
+                            
+                            data = result.get("data", {})
+                            debug_info += f"  Data type: {type(data)}\n"
+                            debug_info += f"  Data keys: {list(data.keys()) if isinstance(data, dict) else 'N/A'}\n"
+                            
+                            # Try to extract emails from different possible locations
+                            emails = None
+                            
+                            # Method 1: data.emails
+                            if isinstance(data, dict) and "emails" in data:
+                                emails = data.get("emails", [])
+                                debug_info += f"  ✓ Found emails in data['emails']: {len(emails)} items\n"
+                            
+                            # Method 2: data is a list
+                            elif isinstance(data, list):
+                                emails = data
+                                debug_info += f"  ✓ Data is a list: {len(emails)} items\n"
+                            
+                            # Method 3: Check all keys in data
+                            elif isinstance(data, dict):
+                                debug_info += f"  Data content preview: {str(data)[:500]}\n"
+                                for key, value in data.items():
+                                    if isinstance(value, list) and value:
+                                        debug_info += f"    Found list at data['{key}']: {len(value)} items\n"
+                                        if key not in ["nextPageToken"]:
+                                            emails = value
+                                            break
+                            
+                            if emails is None:
+                                emails = []
+                            
+                            summary = debug_info + "\n" + "="*50 + "\n\n"
+                            
+                            if emails:
+                                summary += f"📧 Found {len(emails)} emails:\n\n"
+                                for email in emails[:3]:  # Show first 3
+                                    summary += f"From: {email.get('sender', 'Unknown')}\n"
+                                    summary += f"Subject: {email.get('subject', 'No subject')}\n"
+                                    preview = email.get('preview', {}).get('body', '')[:80] if isinstance(email.get('preview'), dict) else str(email.get('preview', ''))[:80]
+                                    summary += f"Preview: {preview}...\n"
+                                    summary += "-" * 40 + "\n"
+                                if len(emails) > 3:
+                                    summary += f"... and {len(emails) - 3} more emails"
+                            else:
+                                summary += "❌ No emails found\n"
+                            
+                            return summary
+                        except Exception as e:
+                            import traceback
+                            return f"❌ Email error: {str(e)}\n{traceback.format_exc()}\n\nResult: {str(result)[:500]}"
+                    
+                    
                     return str(result)
                 except Exception as e:
                     return f"Error executing {t.name}: {str(e)}"
@@ -77,7 +143,7 @@ llm = ChatOllama(
 # 4. THE FIX: Strict ReAct Prompt for Local LLMs
 # Local models MUST be forced to output valid JSON for tools.
 template = """
-You are a helpful AI assistant running locally. Today is Feb 19, 2026.
+You are a helpful AI assistant running locally. Today is Feb 20, 2026.
 You have access to the following tools:
 
 {tools}
@@ -86,12 +152,13 @@ CRITICAL INSTRUCTIONS:
 1. To use a tool, you MUST use the exact format below.
 2. The "Action Input" MUST be a valid JSON object.
 3. Do not invent tools. Only use the ones listed.
+4. For GMAIL_FETCH_EMAILS: Pass {{"max_results": 10}} to get all emails, not just unread ones.
 
 Format:
 Question: the input question you must answer
 Thought: I need to use a tool to get information.
 Action: the action to take, should be one of [{tool_names}]
-Action Input: {{ "arg_name": "value" }}
+Action Input: {{ "max_results": 10 }}
 Observation: [Tool output will appear here]
 ... (this Thought/Action/Action Input/Observation can repeat N times)
 Thought: I now know the final answer
