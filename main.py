@@ -197,9 +197,68 @@ async def chat_endpoint(request: ChatRequest):
     try:
         print(f"\n📩 User: {request.message}")
         result = agent_executor.invoke({"input": request.message})
-        return {"reply": result["output"]}
+        
+        # Get the final answer
+        output = result.get("output", "")
+        
+        # Clean up raw Gmail responses if they appear in the output
+        if "messageText" in output or "labelIds" in output:
+            # This is raw Gmail API output, parse and format it
+            try:
+                import json
+                import re
+                import ast
+                
+                # Try to extract and parse Python dict or JSON
+                dict_match = re.search(r'\{.*\}', output, re.DOTALL)
+                if dict_match:
+                    try:
+                        # First try JSON parsing
+                        raw_data = json.loads(dict_match.group())
+                    except json.JSONDecodeError:
+                        # Fallback to ast.literal_eval for Python dict strings
+                        raw_data = ast.literal_eval(dict_match.group())
+                    
+                    # Handle single email response
+                    if "sender" in raw_data and "subject" in raw_data:
+                        formatted = f"📧 Email found:\n\n"
+                        formatted += f"From: {raw_data.get('sender', 'Unknown')}\n"
+                        formatted += f"Subject: {raw_data.get('subject', 'No subject')}\n"
+                        formatted += f"To: {raw_data.get('to', 'Unknown')}\n"
+                        message_text = raw_data.get('messageText', '')
+                        preview = raw_data.get('preview', {})
+                        if isinstance(preview, dict):
+                            preview_text = preview.get('body', '')[:150]
+                        else:
+                            preview_text = str(message_text)[:150]
+                        formatted += f"Preview: {preview_text}...\n"
+                        output = formatted
+                    
+                    # Handle email list response
+                    else:
+                        emails = raw_data.get("data", {}).get("emails", []) or \
+                                 raw_data.get("emails", []) or []
+                        
+                        if emails:
+                            formatted = f"📧 Found {len(emails)} emails:\n\n"
+                            for email in emails[:5]:
+                                formatted += f"From: {email.get('sender', 'Unknown')}\n"
+                                formatted += f"Subject: {email.get('subject', 'No subject')}\n"
+                                preview = email.get('preview', {}).get('body', '')[:100] if isinstance(email.get('preview'), dict) else str(email.get('preview', ''))[:100]
+                                formatted += f"Preview: {preview}...\n"
+                                formatted += "-" * 50 + "\n"
+                            if len(emails) > 5:
+                                formatted += f"\n... and {len(emails) - 5} more emails"
+                            output = formatted
+            except Exception as e:
+                print(f"⚠️ Formatter error: {e}")
+                pass  # If parsing fails, return original output
+        
+        return {"reply": output}
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
 
 # --- RUNNER ---
