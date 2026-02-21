@@ -75,6 +75,10 @@ try:
         "calendar",
         "calendars",
         "google_calendars",
+        "googledrive",
+        "google_drive",
+        "google-drive",
+        "drive",
     ]
     
     print("\n📦 Testing toolkit names...")
@@ -106,10 +110,13 @@ try:
     # Debug: Print individual tool names
     print("📋 Available tools:")
     calendar_tools = []
+    drive_tools = []
     for tool in raw_tools:
         print(f"   - {tool.name}")
         if "CALENDAR" in tool.name:
             calendar_tools.append(tool.name)
+        if "DRIVE" in tool.name or "GDRIVE" in tool.name:
+            drive_tools.append(tool.name)
     
     # Helpful hint for calendar tools
     if calendar_tools:
@@ -118,6 +125,14 @@ try:
             print(f"   • {cal_tool}")
         if len(calendar_tools) > 10:
             print(f"   ... and {len(calendar_tools) - 10} more")
+    
+    # Helpful hint for drive tools
+    if drive_tools:
+        print(f"\n💡 Google Drive tools available:")
+        for drive_tool in drive_tools[:10]:
+            print(f"   • {drive_tool}")
+        if len(drive_tools) > 10:
+            print(f"   ... and {len(drive_tools) - 10} more")
     
     # FIX: Manually wrap tools to accept LangChain's argument format
     from langchain_core.tools import tool
@@ -261,8 +276,40 @@ try:
                         except Exception as e:
                             return str(result)
                     
+                    # Format Google Drive responses nicely
+                    elif t.name.startswith("GDRIVE_") or "drive" in t.name.lower():
+                        try:
+                            if isinstance(result, str):
+                                result = json.loads(result)
+                            
+                            # Handle file/folder search results
+                            if isinstance(result, dict) and "files" in result:
+                                files = result.get("files", [])
+                                summary = f"📁 Found {len(files)} items on Google Drive:\n\n"
+                                for file in files[:10]:
+                                    file_type = "📄" if file.get('mimeType', '').startswith('text') else "📁" if 'folder' in file.get('mimeType', '').lower() else "📎"
+                                    summary += f"{file_type} {file.get('name', 'Unnamed')}\n"
+                                    if file.get('description'):
+                                        summary += f"   Description: {file.get('description')[:60]}...\n"
+                                    summary += f"   ID: {file.get('id', 'N/A')}\n"
+                                    summary += "-" * 40 + "\n"
+                                if len(files) > 10:
+                                    summary += f"\n... and {len(files) - 10} more items"
+                                return summary
+                            # Handle single file response
+                            elif isinstance(result, dict) and "name" in result:
+                                summary = f"📄 File: {result.get('name', 'Unknown')}\n"
+                                summary += f"ID: {result.get('id', 'N/A')}\n"
+                                summary += f"Type: {result.get('mimeType', 'N/A')}\n"
+                                if result.get('webViewLink'):
+                                    summary += f"Link: {result.get('webViewLink')}\n"
+                                return summary
+                            else:
+                                return str(result)
+                        except Exception as e:
+                            return str(result)
                     
-                    return str(result)
+                    
                 except Exception as e:
                     # Smart error handling - extract missing fields from error
                     error_msg = str(e)
