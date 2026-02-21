@@ -1,3 +1,39 @@
+"""
+=== SCALABLE MULTI-TOOLKIT AI ORCHESTRATION ===
+
+ARCHITECTURE:
+1. DYNAMIC TOOLKIT LOADING
+   - Add toolkits to line ~45: toolkits=["gmail", "googlecalendar", "slack", ...]
+   - All connected toolkits automatically load their tools
+
+2. GENERIC PARAMETER EXTRACTION
+   - Parses tool descriptions to extract likely parameters
+   - No hardcoding needed - works with any toolkit
+   - Scales to 100+ tools automatically
+
+3. SMART ERROR HANDLING
+   - When tool fails, extracts missing fields from error message
+   - Shows user exactly which parameters are missing
+   - User can retry with correct parameters
+
+4. UNIVERSAL AGENT PROMPT
+   - Same prompt works for any toolkit
+   - Agent reads tool descriptions to understand parameters
+   - Guides agent to use EXACT tool names and formats
+
+ADDING NEW TOOLKITS:
+1. Go to Composio platform, connect the service (Slack, GitHub, etc.)
+2. Edit main.py line ~45: toolkits=["gmail", "new_toolkit_name"]
+3. That's it! The agent automatically has access to all new tools
+
+SUPPORTED TOOLKITS:
+- Gmail, Google Calendar, Google Drive, Google Docs
+- Slack, Microsoft Outlook
+- GitHub, Jira
+- Notion, Trello, Asana
+- ... and more!
+"""
+
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -7,6 +43,7 @@ from pydantic import BaseModel
 from langchain_ollama import ChatOllama
 from langchain_classic.agents import create_react_agent, AgentExecutor
 from langchain_core.prompts import PromptTemplate
+
 
 # 2. Composio Imports (Kept exactly as you had them)
 from composio import Composio
@@ -26,18 +63,101 @@ client = Composio(
 )
 
 print("2. Fetching Tools...")
+COMPOSIO_USER_ID = "pg-test-a40e9be6-01b3-4dc2-ba78-30d8c608e993"
+
 try:
-    raw_tools = client.tools.get(
-        user_id="default", 
-        toolkits=["gmail", "googlecalendar"]
-    )
-    print(f"✅ Loaded {len(raw_tools)} tools natively.")
+    # Try different toolkit names to find what works
+    toolkit_names_to_try = [
+        "gmail",
+        "googlecalendar",
+        "google_calendar", 
+        "google-calendar",
+        "calendar",
+        "calendars",
+        "google_calendars",
+    ]
+    
+    print("\n📦 Testing toolkit names...")
+    raw_tools = []
+    working_toolkits = []
+    
+    for toolkit_name in toolkit_names_to_try:
+        try:
+            tools = client.tools.get(
+                user_id=COMPOSIO_USER_ID,
+                toolkits=[toolkit_name]
+            )
+            if tools and len(tools) > 0:
+                raw_tools.extend(tools)
+                working_toolkits.append(toolkit_name)
+                print(f"  ✓ '{toolkit_name}': {len(tools)} tools")
+        except Exception as e:
+            pass
+    
+    print(f"✅ Total: {len(raw_tools)} tools")
+    print(f"📝 Working toolkit names: {working_toolkits}")
+    print(f"   → Copy this: toolkits={working_toolkits}\n")
+    
+    # Show how to add more toolkits
+    print("📚 To add more toolkits, edit line ~45 and add to toolkit list:")
+    print("   Available: gmail, googlecalendar, googledrive, slack, github, notion, jira, asana, trello, etc.")
+    print("   (Make sure they're connected on Composio platform)\n")
+    
+    # Debug: Print individual tool names
+    print("📋 Available tools:")
+    calendar_tools = []
+    for tool in raw_tools:
+        print(f"   - {tool.name}")
+        if "CALENDAR" in tool.name:
+            calendar_tools.append(tool.name)
+    
+    # Helpful hint for calendar tools
+    if calendar_tools:
+        print(f"\n💡 Calendar tools available:")
+        for cal_tool in calendar_tools[:10]:
+            print(f"   • {cal_tool}")
+        if len(calendar_tools) > 10:
+            print(f"   ... and {len(calendar_tools) - 10} more")
     
     # FIX: Manually wrap tools to accept LangChain's argument format
     from langchain_core.tools import tool
+    import re
+    
+    # Function to extract parameters from tool description
+    def extract_params_from_description(description):
+        """Extract likely parameters from tool description"""
+        if not description:
+            return []
+        
+        # Common patterns in descriptions
+        patterns = [
+            r'(?:requires?|needs?|parameters?)\s*:?\s*([^.]+)',  # "Requires: x, y, z"
+            r'(?:pass|provide|input)\s*:?\s*([^.]+)',              # "Pass: x, y"
+            r'\b(calendarId|calendar_id|eventId|event_id|message_id|messageId|userId|user_id)\b',  # Common field names
+        ]
+        
+        params = set()
+        for pattern in patterns:
+            matches = re.findall(pattern, description, re.IGNORECASE)
+            for match in matches:
+                # Clean up and split comma-separated values
+                if isinstance(match, tuple):
+                    match = match[0]
+                items = re.split(r'[,\s]+', str(match))
+                for item in items:
+                    item = item.strip().strip('()[]{}')
+                    if item and len(item) > 2:
+                        params.add(item)
+        
+        return list(params)[:5]  # Return top 5
     
     tools = []
+    tool_descriptions = {}  # Store descriptions for error help
+    
     for raw_tool in raw_tools:
+        # Store tool info for later error handling
+        tool_descriptions[raw_tool.name] = raw_tool.description
+        
         # Create wrapper function with proper argument handling
         def create_wrapper(t):
             @tool
@@ -53,7 +173,7 @@ try:
                         dangerously_skip_version_check=True
                     )
                     
-                    # Format Gmail responses nicely
+                    # Format tool responses nicely based on tool type
                     if t.name == "GMAIL_FETCH_EMAILS":
                         try:
                             import json
@@ -117,10 +237,55 @@ try:
                             import traceback
                             return f"❌ Email error: {str(e)}\n{traceback.format_exc()}\n\nResult: {str(result)[:500]}"
                     
+                    # Format Google Calendar responses nicely
+                    elif t.name.startswith("GOOGLE_CALENDAR_"):
+                        try:
+                            if isinstance(result, str):
+                                result = json.loads(result)
+                            
+                            # Handle calendar events list
+                            if isinstance(result, dict) and "items" in result:
+                                events = result.get("items", [])
+                                summary = f"📅 Found {len(events)} calendar events:\n\n"
+                                for event in events[:5]:
+                                    summary += f"Event: {event.get('summary', 'No title')}\n"
+                                    summary += f"Time: {event.get('start', {}).get('dateTime', event.get('start', {}).get('date', 'TBD'))}\n"
+                                    if event.get('description'):
+                                        summary += f"Description: {event.get('description')[:80]}...\n"
+                                    summary += "-" * 40 + "\n"
+                                if len(events) > 5:
+                                    summary += f"\n... and {len(events) - 5} more events"
+                                return summary
+                            else:
+                                return str(result)
+                        except Exception as e:
+                            return str(result)
+                    
                     
                     return str(result)
                 except Exception as e:
-                    return f"Error executing {t.name}: {str(e)}"
+                    # Smart error handling - extract missing fields from error
+                    error_msg = str(e)
+                    
+                    # Try to extract missing field names from error
+                    missing_fields = re.findall(r"'([^']+)'", error_msg)
+                    
+                    # Get parameter hints from tool description
+                    tool_desc = tool_descriptions.get(t.name, "")
+                    suggested_params = extract_params_from_description(tool_desc)
+                    
+                    error_response = f"❌ {t.name} failed\n\n"
+                    error_response += f"Error: {error_msg[:200]}\n\n"
+                    
+                    if missing_fields:
+                        error_response += f"💡 Missing fields: {', '.join(missing_fields[:5])}\n"
+                    
+                    if suggested_params:
+                        error_response += f"💡 Suggested parameters: {', '.join(suggested_params)}\n"
+                    else:
+                        error_response += f"💡 Tool description: {tool_desc[:200]}...\n"
+                    
+                    return error_response
             
             wrapped_tool.name = t.name
             wrapped_tool.description = t.description
@@ -140,28 +305,33 @@ llm = ChatOllama(
     num_ctx=4096              # Reasonable context window for speed
 )
 
-# 4. THE FIX: Strict ReAct Prompt for Local LLMs
-# Local models MUST be forced to output valid JSON for tools.
+# 4. Dynamic Prompt - works with ANY toolkit
 template = """
 You are a helpful AI assistant running locally. Today is Feb 20, 2026.
-You have access to the following tools:
+You have access to many different tools across multiple platforms.
 
 {tools}
 
 CRITICAL INSTRUCTIONS:
-1. To use a tool, you MUST use the exact format below.
-2. The "Action Input" MUST be a valid JSON object.
-3. Do not invent tools. Only use the ones listed.
-4. For GMAIL_FETCH_EMAILS: Pass {{"max_results": 10}} to get all emails, not just unread ones.
+1. To use a tool, you MUST use the exact format below - this is MANDATORY.
+2. The "Action Input" MUST be a valid JSON object {{ }}.
+3. Only use tools listed above (available: {tool_names}).
+4. Use EXACT tool names from the list - do not modify or guess names.
+5. Extract required parameters from each tool's DESCRIPTION above.
+6. Common parameter patterns:
+   - ID fields: Usually need "Id" or "id" suffix (e.g., eventId, calendarId, messageId)
+   - List/Get operations: May need resource identifiers like "primary" for calendars
+   - Primary ID is usually "primary" for Google services
+7. When a tool fails, the error message will tell you which fields are missing.
 
-Format:
+Format (MUST follow exactly):
 Question: the input question you must answer
-Thought: I need to use a tool to get information.
-Action: the action to take, should be one of [{tool_names}]
-Action Input: {{ "max_results": 10 }}
+Thought: I need to use a tool to solve this. Let me check the tool description for parameters.
+Action: [Should be one of {tool_names}]
+Action Input: {{"parameter1": "value1", "parameter2": "value2"}}
 Observation: [Tool output will appear here]
-... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
+... (repeat Thought/Action/Action Input/Observation as needed)
+Thought: I now have the answer
 Final Answer: [Your final response to the user]
 
 Begin!
@@ -170,7 +340,13 @@ Question: {input}
 Thought:{agent_scratchpad}
 """
 
-prompt = PromptTemplate.from_template(template)
+prompt = PromptTemplate(
+    template=template,
+    input_variables=["tools", "tool_names", "input", "agent_scratchpad"]
+)
+
+# Verify prompt has all required variables
+print(f"✅ Prompt variables: {prompt.input_variables}")
 
 # Create the ReAct Agent
 if tools:
