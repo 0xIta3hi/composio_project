@@ -50,7 +50,7 @@ from composio import Composio
 from composio_langchain import LangchainProvider
 
 # --- CONFIGURATION ---
-os.environ["COMPOSIO_API_KEY"] = "ak_GiG5fj7cc1S7h3V9MBxc" 
+os.environ["COMPOSIO_API_KEY"] = "<your-composio-api-key>" 
 # Google API Key removed - we are fully local now!
 
 app = FastAPI()
@@ -63,7 +63,7 @@ client = Composio(
 )
 
 print("2. Fetching Tools...")
-COMPOSIO_USER_ID = "pg-test-a40e9be6-01b3-4dc2-ba78-30d8c608e993"
+COMPOSIO_USER_ID = "<your-composio-user-id"
 
 try:
     # Try different toolkit names to find what works
@@ -100,12 +100,6 @@ try:
     
     print(f"✅ Total: {len(raw_tools)} tools")
     print(f"📝 Working toolkit names: {working_toolkits}")
-    print(f"   → Copy this: toolkits={working_toolkits}\n")
-    
-    # Show how to add more toolkits
-    print("📚 To add more toolkits, edit line ~45 and add to toolkit list:")
-    print("   Available: gmail, googlecalendar, googledrive, slack, github, notion, jira, asana, trello, etc.")
-    print("   (Make sure they're connected on Composio platform)\n")
     
     # Debug: Print individual tool names
     print("📋 Available tools:")
@@ -184,7 +178,7 @@ try:
                     result = client.tools.execute(
                         slug=t.name,
                         arguments=args,
-                        user_id="pg-test-a40e9be6-01b3-4dc2-ba78-30d8c608e993",
+                        user_id="<Your-Composio-User-ID",
                         dangerously_skip_version_check=True
                     )
                     
@@ -285,9 +279,9 @@ try:
                             # Handle file/folder search results
                             if isinstance(result, dict) and "files" in result:
                                 files = result.get("files", [])
-                                summary = f"📁 Found {len(files)} items on Google Drive:\n\n"
+                                summary = f"Found {len(files)} items on Google Drive:\n\n"
                                 for file in files[:10]:
-                                    file_type = "📄" if file.get('mimeType', '').startswith('text') else "📁" if 'folder' in file.get('mimeType', '').lower() else "📎"
+                                    file_type = "📄" if file.get('mimeType', '').startswith('text') else "" if 'folder' in file.get('mimeType', '').lower() else "📎"
                                     summary += f"{file_type} {file.get('name', 'Unnamed')}\n"
                                     if file.get('description'):
                                         summary += f"   Description: {file.get('description')[:60]}...\n"
@@ -393,7 +387,7 @@ prompt = PromptTemplate(
 )
 
 # Verify prompt has all required variables
-print(f"✅ Prompt variables: {prompt.input_variables}")
+print(f" Prompt variables: {prompt.input_variables}")
 
 # Create the ReAct Agent
 if tools:
@@ -418,7 +412,7 @@ async def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=500, detail="Agent failed to initialize tools")
     
     try:
-        print(f"\n📩 User: {request.message}")
+        print(f"\n User: {request.message}")
         result = agent_executor.invoke({"input": request.message})
         
         # Get the final answer
