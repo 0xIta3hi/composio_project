@@ -20,11 +20,24 @@ Nexus follows a **Provider Pattern**, decoupling the local reasoning engine from
     
 - **Managed Authentication:** Eliminates brittle token management. OAuth2 flows, token refreshes, and API key management are handled securely via the Composio gateway, abstracting auth complexities away from the LLM.
     
-- **Local-First AI:** Optimized for hardware constraints (e.g., RTX 3050 / 4GB VRAM) using `qwen2.5-coder:3b`, proving that high-utility, agentic workflows don't require massive GPU clusters.
-    
 - **Strict ReAct Protocol:** Implements robust "Reason + Act" loops via LangChain, forcing the local SLM to output strict JSON for reliable, deterministic API execution.
     
-
+### Final Architecture    
+```text
+├── core/
+│   ├── __init__.py          (package marker)
+│   ├── llm.py               (LLM factory → get_llm())
+│   └── prompts.py           (ReAct templates → get_prompt())
+├── integrations/
+│   ├── __init__.py          (package marker)
+│   ├── composio_tools.py    (Composio toolkit loading & wrapping)
+│   └── formatters.py        (Response formatting)
+├── api/
+│   ├── __init__.py          (package marker)
+│   └── routes.py            (FastAPI endpoints → ChatRequest, /chat)
+├── main_new.py              (Minimal orchestration - ready to replace main.py)
+└── main.py                  (Original backup)
+```
 ---
 
 ## 🚀 Core Capabilities
