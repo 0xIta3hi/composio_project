@@ -86,10 +86,13 @@ async def chat_endpoint(request: ChatRequest):
         output = result.get("output", "")
         formatted_output = format_agent_output(output)
         
+        print(f"\n✅ Response sent to frontend")
         return {"reply": formatted_output}
     
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
-        return {"error": str(e)}
+        # Always return 'reply' key for consistency with frontend expectations
+        error_msg = f"⚠️ Agent encountered an error: {str(e)[:200]}"
+        return {"reply": error_msg}
