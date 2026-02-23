@@ -29,6 +29,11 @@ SUPPORTED TOOLKITS:
 
 import uvicorn
 from fastapi import FastAPI
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file FIRST
+load_dotenv()
 
 from api.routes import router
 

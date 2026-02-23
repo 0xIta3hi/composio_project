@@ -10,9 +10,18 @@ from composio_langchain import LangchainProvider
 from langchain_core.tools import tool
 
 
-# Configuration
+# Configuration - Load from environment (populated by python-dotenv in main.py)
 COMPOSIO_API_KEY = os.environ.get("COMPOSIO_API_KEY", "")
 COMPOSIO_USER_ID = os.environ.get("COMPOSIO_USER_ID", "")
+
+# Validation with helpful error messages
+if not COMPOSIO_API_KEY:
+    print("⚠️  WARNING: COMPOSIO_API_KEY not found in environment or .env file")
+    print("   Make sure your .env file contains: COMPOSIO_API_KEY = \"your-api-key\"")
+
+if not COMPOSIO_USER_ID:
+    print("⚠️  WARNING: COMPOSIO_USER_ID not found in environment or .env file")
+    print("   Make sure your .env file contains: COMPOSIO_USER_ID = \"your-user-id\"")
 
 # Toolkit names to try
 TOOLKIT_NAMES_TO_TRY = [
